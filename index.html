@@ -1,0 +1,1983 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agium Sales Dashboard 2026</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
+<style>
+:root{
+  --agium-donker:#113642;
+  --agium-lichtblauw:#9ED4D8;
+  --agium-groen:#43B08C;
+  --agium-donkergroen:#007059;
+  --agium-roze:#F6C6C6;
+  --bg-page:#F4F7F7;
+  --bg-card:#FFFFFF;
+  --text-primary:#113642;
+  --text-secondary:#5C7680;
+  --radius:12px;
+  --gap:18px;
+}
+*{box-sizing:border-box;}
+body{
+  margin:0;
+  font-family:'Inter','Open Sans',Arial,sans-serif;
+  background:var(--bg-page);
+  color:var(--text-primary);
+}
+.dashboard-container{
+  max-width:1440px;
+  margin:0 auto;
+  padding:24px;
+}
+
+/* ---------- Setup / loading / sync status ---------- */
+.setup-banner{
+  background:#fff3cd; border:1px solid #ffe08a; color:#7a5b00; padding:14px 18px;
+  border-radius:var(--radius); margin-bottom:var(--gap); font-size:13px; line-height:1.6;
+}
+.setup-banner code{background:rgba(0,0,0,.08); padding:1px 6px; border-radius:4px; font-size:12px;}
+.loading-overlay{
+  position:fixed; inset:0; background:rgba(244,247,247,.92); z-index:2000;
+  display:flex; align-items:center; justify-content:center;
+}
+.loading-overlay.hide{display:none;}
+.loading-box{text-align:center; color:var(--agium-donker);}
+.loading-spinner{
+  width:36px; height:36px; border:4px solid #dfe9e9; border-top-color:var(--agium-groen);
+  border-radius:50%; margin:0 auto 14px auto; animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+.sync-status{
+  display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-secondary);
+}
+.sync-dot{width:8px; height:8px; border-radius:50%; background:#c9c9c9; flex-shrink:0;}
+.sync-status.live .sync-dot{background:var(--agium-groen);}
+.sync-status.saving .sync-dot{background:#e0a72e; animation:pulse 1s ease-in-out infinite;}
+.sync-status.error .sync-dot{background:#c0455a;}
+@keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.3;}}
+.toast{
+  position:fixed; bottom:20px; right:20px; background:var(--agium-donker); color:#fff;
+  padding:12px 18px; border-radius:8px; font-size:13px; box-shadow:0 6px 20px rgba(17,54,66,.3);
+  z-index:3000; opacity:0; transform:translateY(10px); transition:all .2s ease; pointer-events:none;
+}
+.toast.show{opacity:1; transform:translateY(0);}
+.toast.error{background:#c0455a;}
+
+/* ---------- Header + tab switcher ---------- */
+.top-bar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:14px;
+  margin-bottom:var(--gap);
+}
+.title-block h1{margin:0 0 2px 0; font-size:21px; font-weight:700; color:var(--agium-donker);}
+.title-block p{margin:0; font-size:13px; color:var(--text-secondary);}
+.agium-logo{height:34px; width:auto; display:block;}
+
+.tab-switch{
+  display:inline-flex;
+  background:#fff;
+  border-radius:999px;
+  padding:5px;
+  box-shadow:0 1px 3px rgba(17,54,66,.10);
+  gap:2px;
+}
+.tab-switch button{
+  border:none;
+  background:transparent;
+  padding:10px 20px;
+  border-radius:999px;
+  font-size:14px;
+  font-weight:600;
+  color:var(--agium-groen);
+  cursor:pointer;
+  transition:all .15s ease;
+  white-space:nowrap;
+}
+.tab-switch button.active{
+  background:var(--agium-donker);
+  color:#fff;
+}
+.tab-switch button:not(.active):hover{
+  background:#f0f5f5;
+}
+
+.view{display:none;}
+.view.active{display:block;}
+
+/* ---------- Filters ---------- */
+.filters-bar{
+  background:var(--agium-donker);
+  color:#fff;
+  padding:18px 22px;
+  border-radius:var(--radius);
+  margin-bottom:var(--gap);
+  display:flex;
+  gap:14px;
+  align-items:flex-end;
+  flex-wrap:wrap;
+}
+.filter-group{display:flex; flex-direction:column; gap:4px;}
+.filter-group > label{
+  font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:rgba(255,255,255,.75);
+}
+.filter-group select, .filter-group input[type=text]{
+  padding:7px 10px; border-radius:6px; border:1px solid rgba(255,255,255,.25);
+  background:rgba(255,255,255,.1); color:#fff; font-size:13px; min-width:150px;
+}
+.filter-group select option{background:var(--agium-donker); color:#fff;}
+.filter-group input[type=text]::placeholder{color:rgba(255,255,255,.6);}
+.btn-reset{
+  padding:7px 14px; border-radius:6px; border:none; background:var(--agium-groen);
+  color:#fff; font-size:13px; font-weight:600; cursor:pointer; height:32px;
+}
+.btn-reset:hover{background:var(--agium-donkergroen);}
+.filter-toggle{display:inline-flex; background:rgba(255,255,255,.1); border-radius:8px; padding:3px; gap:2px;}
+.filter-toggle button{
+  border:none; background:transparent; padding:7px 14px; border-radius:6px;
+  font-size:12.5px; font-weight:700; color:rgba(255,255,255,.75); cursor:pointer; transition:all .15s ease; white-space:nowrap;
+}
+.filter-toggle button.active{background:var(--agium-groen); color:#fff;}
+.filter-toggle button:not(.active):hover{background:rgba(255,255,255,.18);}
+
+/* ---------- KPI cards ---------- */
+.kpi-row{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:var(--gap); margin-bottom:var(--gap);
+}
+.kpi-card{
+  background:var(--bg-card); border-radius:var(--radius); padding:18px 22px;
+  box-shadow:0 1px 3px rgba(17,54,66,.08); border-left:4px solid var(--agium-groen);
+}
+.kpi-label{font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;}
+.kpi-value{font-size:30px; font-weight:700; color:var(--agium-donker);}
+.kpi-sub{font-size:12px; color:var(--text-secondary); margin-top:4px;}
+
+/* ---------- Charts ---------- */
+.chart-row{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr));
+  gap:var(--gap); margin-bottom:var(--gap);
+}
+.chart-container{
+  background:var(--bg-card); border-radius:var(--radius); padding:20px 22px;
+  box-shadow:0 1px 3px rgba(17,54,66,.08);
+}
+.chart-container h3{margin:0 0 14px 0; font-size:14px; font-weight:600;}
+.chart-container canvas{max-height:280px;}
+
+/* ---------- Event picker (Events tab) ---------- */
+.event-picker{
+  display:flex; gap:10px; flex-wrap:wrap; margin-bottom:var(--gap);
+}
+.event-chip{
+  padding:9px 14px; border-radius:999px; background:#fff; border:1.5px solid #d9e2e2;
+  font-size:13px; font-weight:600; color:var(--text-secondary); cursor:pointer;
+  transition:all .15s ease; white-space:nowrap; display:inline-flex; align-items:center; gap:6px;
+}
+.event-chip:hover{border-color:var(--agium-groen); color:var(--agium-donker);}
+.event-chip.active{
+  background:var(--agium-groen); border-color:var(--agium-groen); color:#fff;
+}
+.event-chip .count{
+  display:inline-block; padding:1px 7px; border-radius:999px;
+  background:rgba(0,0,0,.12); font-size:11px;
+}
+.event-chip.active .count{background:rgba(255,255,255,.25);}
+.event-chip-delete{
+  opacity:0; pointer-events:none; background:rgba(0,0,0,.08); border:none; color:var(--text-secondary);
+  width:17px; height:17px; border-radius:50%; font-size:12px; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition:opacity .15s ease;
+}
+.event-chip:hover .event-chip-delete{opacity:1; pointer-events:auto;}
+.event-chip-delete:hover{background:#c0455a !important; color:#fff;}
+.event-chip.active .event-chip-delete{color:#fff; background:rgba(255,255,255,.25);}
+.event-chip-add{
+  border:1.5px dashed #b9c8c8; color:var(--agium-donkergroen); font-weight:800; font-size:16px;
+  padding:9px 18px; display:flex; align-items:center; justify-content:center; background:#fff;
+}
+.event-chip-add:hover{border-color:var(--agium-groen); background:#eef8f6; color:var(--agium-donkergroen);}
+
+/* ---------- Table ---------- */
+.table-section{
+  background:var(--bg-card); border-radius:var(--radius); padding:20px 22px;
+  box-shadow:0 1px 3px rgba(17,54,66,.08); overflow-x:auto;
+}
+.table-section h3{margin:0 0 4px 0; font-size:14px; font-weight:600;}
+.table-meta{font-size:12px; color:var(--text-secondary); margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;}
+.changes-badge{
+  font-size:12px; font-weight:600; color:var(--agium-donkergroen); background:#e4f4ee;
+  padding:4px 10px; border-radius:999px; display:none;
+}
+.changes-badge.show{display:inline-block;}
+.btn-export{
+  padding:7px 14px; border-radius:6px; border:1px solid var(--agium-groen); background:#fff;
+  color:var(--agium-donkergroen); font-size:12px; font-weight:600; cursor:pointer;
+}
+.btn-export:hover{background:var(--agium-groen); color:#fff;}
+.btn-add-contact{
+  padding:7px 14px; border-radius:6px; border:none; background:var(--agium-groen);
+  color:#fff; font-size:12px; font-weight:700; cursor:pointer;
+}
+.btn-add-contact:hover{background:var(--agium-donkergroen);}
+
+table.data-table{width:100%; table-layout:fixed; border-collapse:collapse; font-size:13px;}
+.data-table col.col-aanwezig{width:80px;}
+.data-table col.col-org{width:20%;}
+.data-table col.col-contact{width:20%;}
+.data-table col.col-functie{width:22%;}
+.data-table col.col-tags{width:26%;}
+.data-table col.col-chevron{width:36px;}
+.data-table thead th{
+  text-align:left; padding:10px 12px; border-bottom:2px solid #e2e8e8; color:var(--text-secondary);
+  font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap;
+  cursor:pointer; user-select:none; overflow:hidden; text-overflow:ellipsis;
+}
+.data-table thead th:hover{color:var(--agium-donker); background:#f4f7f7;}
+.data-table thead th.sorted::after{content:" ▾"; font-size:10px;}
+.data-table tbody td{
+  padding:11px 12px; border-bottom:1px solid #eef2f2; vertical-align:top;
+  overflow:hidden; text-overflow:ellipsis; word-wrap:break-word;
+}
+.data-table tbody tr{cursor:pointer; transition:background .1s ease;}
+.data-table tbody tr:hover{background:#f8fbfb;}
+.data-table tbody tr.edited{background:#fbf7ec;}
+.data-table tbody tr.edited:hover{background:#f7f0dc;}
+.contact-name{color:var(--agium-donkergroen); font-weight:600;}
+.contact-name:hover{text-decoration:underline;}
+.chevron{color:var(--text-secondary); font-size:15px; text-align:center;}
+
+.pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap;}
+.pill-ja{background:var(--agium-groen); color:#fff;}
+.pill-nee{background:var(--agium-roze); color:var(--agium-donker);}
+.pill-none{background:#e9eef0; color:var(--text-secondary);}
+
+.tag-chip{
+  display:inline-block; padding:2px 8px; margin:0 4px 4px 0; border-radius:6px;
+  font-size:11px; font-weight:600; background:#eef4f4; color:var(--agium-donker);
+}
+.tag-chip.tag-bm{background:var(--agium-lichtblauw); color:var(--agium-donker);}
+.tag-chip.tag-actie{background:#eef4f4; color:var(--agium-donkergroen);}
+.tag-chip.tag-propositie{background:var(--agium-roze); color:var(--agium-donker);}
+.tag-empty{font-size:12px; color:#b7c2c2;}
+
+/* ---------------- Detail modal ---------------- */
+.modal-overlay{
+  display:none; position:fixed; inset:0; background:rgba(17,54,66,.45);
+  z-index:1000; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto;
+}
+.modal-overlay.show{display:flex;}
+.modal-box{
+  background:#fff; border-radius:var(--radius); width:100%; max-width:560px;
+  box-shadow:0 10px 40px rgba(17,54,66,.25); overflow:hidden;
+}
+.modal-head{
+  background:var(--agium-donker); color:#fff; padding:20px 24px; position:relative;
+}
+.modal-head h2{margin:0 0 4px 0; font-size:18px; font-weight:700;}
+.modal-head p{margin:0; font-size:13px; color:var(--agium-lichtblauw);}
+.modal-name-input{
+  display:block; width:100%; background:transparent; border:none; border-bottom:1px dashed transparent;
+  color:#fff; font-size:18px; font-weight:700; padding:0 0 2px 0; margin:0 0 6px 0; font-family:inherit;
+}
+.modal-name-input::placeholder{color:rgba(255,255,255,.5); font-weight:600;}
+.modal-name-input:hover, .modal-name-input:focus{border-bottom-color:rgba(255,255,255,.4); outline:none;}
+.modal-name-input:read-only:hover, .modal-name-input:read-only:focus{border-bottom-color:transparent;}
+.modal-orgfunctie-row{display:flex; align-items:center; gap:6px;}
+.modal-orgfunctie-input{
+  background:transparent; border:none; border-bottom:1px dashed transparent; color:var(--agium-lichtblauw);
+  font-size:13px; padding:0 0 2px 0; font-family:inherit; min-width:0;
+}
+.modal-orgfunctie-input::placeholder{color:rgba(158,212,216,.6);}
+.modal-orgfunctie-input:hover, .modal-orgfunctie-input:focus{border-bottom-color:rgba(158,212,216,.5); outline:none;}
+.modal-orgfunctie-input:read-only:hover, .modal-orgfunctie-input:read-only:focus{border-bottom-color:transparent;}
+.modal-dash{color:rgba(255,255,255,.35); font-size:13px;}
+.modal-close{
+  position:absolute; top:14px; right:16px; background:rgba(255,255,255,.15); border:none;
+  color:#fff; width:28px; height:28px; border-radius:50%; font-size:16px; cursor:pointer; line-height:1;
+}
+.modal-close:hover{background:rgba(255,255,255,.3);}
+.modal-contact-info{
+  padding:16px 24px; background:#f8fbfb; border-bottom:1px solid #eef2f2;
+  display:flex; gap:24px; flex-wrap:wrap; align-items:center; font-size:13px;
+}
+.modal-contact-info div{color:var(--text-secondary); display:flex; align-items:center; gap:4px;}
+.modal-info-input{
+  background:transparent; border:none; border-bottom:1px dashed transparent; color:var(--agium-donkergroen);
+  font-size:13px; padding:0 0 1px 0; font-family:inherit; min-width:140px;
+}
+.modal-info-input:hover, .modal-info-input:focus{border-bottom-color:var(--agium-groen); outline:none;}
+.modal-info-input:read-only:hover, .modal-info-input:read-only:focus{border-bottom-color:transparent;}
+.modal-edit-contact-btn{
+  margin-left:auto; background:rgba(67,176,140,.12); color:var(--agium-donkergroen);
+  border:1px solid rgba(67,176,140,.4); padding:6px 12px; border-radius:6px;
+  font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap;
+}
+.modal-edit-contact-btn:hover{background:var(--agium-groen); color:#fff; border-color:var(--agium-groen);}
+.modal-edit-contact-btn.unlocked{background:var(--agium-donker); color:#fff; border-color:var(--agium-donker);}
+.modal-form{padding:20px 24px; display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+.form-row{display:flex; flex-direction:column; gap:5px;}
+.form-row.full{grid-column:1 / -1;}
+.form-row label{font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--text-secondary); font-weight:600;}
+.form-row select, .form-row textarea{
+  padding:8px 10px; border:1px solid #dfe7e7; border-radius:6px; font-size:13px;
+  font-family:inherit; background:#fff; color:var(--text-primary);
+}
+.form-row select:focus, .form-row textarea:focus{outline:none; border-color:var(--agium-groen);}
+.form-row textarea{resize:vertical; min-height:60px;}
+.toggle-3{display:inline-flex; background:#eef4f4; border-radius:8px; padding:3px; gap:2px; width:fit-content;}
+.toggle-3 button{
+  border:none; background:transparent; padding:7px 16px; border-radius:6px;
+  font-size:13px; font-weight:700; color:var(--text-secondary); cursor:pointer; transition:all .15s ease;
+}
+.toggle-3 button.active{background:var(--agium-donker); color:#fff;}
+.toggle-3 button[data-value="Ja"].active{background:var(--agium-groen);}
+.toggle-3 button[data-value="Nee"].active{background:var(--agium-roze); color:var(--agium-donker);}
+.toggle-3 button:not(.active):hover{background:#e0eded;}
+.toggle-2{display:inline-flex; background:#eef4f4; border-radius:8px; padding:3px; gap:2px; width:fit-content;}
+.toggle-2 button{
+  border:none; background:transparent; padding:8px 18px; border-radius:6px;
+  font-size:13px; font-weight:700; color:var(--text-secondary); cursor:pointer; transition:all .15s ease;
+}
+.toggle-2 button.active{background:var(--agium-donker); color:#fff;}
+.toggle-2 button[data-value="Nieuw"].active{background:var(--agium-groen);}
+.toggle-2 button:not(.active):hover{background:#e0eded;}
+.tag-nieuw{background:var(--agium-groen); color:#fff;}
+.opmerkingen-log{
+  max-height:150px; overflow-y:auto; border:1px solid #eef2f2; border-radius:6px;
+  padding:8px 10px; background:#f8fbfb;
+}
+.opmerking-entry{
+  padding:6px 0; border-bottom:1px solid #eef2f2; font-size:12.5px; color:var(--text-primary);
+  display:flex; justify-content:space-between; align-items:flex-start; gap:8px;
+}
+.opmerking-entry:last-child{border-bottom:none;}
+.opmerking-entry-text{flex:1; min-width:0;}
+.opmerking-entry .ts{
+  display:block; font-size:10.5px; color:var(--agium-donkergroen); font-weight:700;
+  text-transform:uppercase; letter-spacing:.3px; margin-bottom:2px;
+}
+.opmerking-delete{
+  flex-shrink:0; background:none; border:none; color:#c3d0d0; font-size:15px; line-height:1;
+  cursor:pointer; padding:1px 3px; border-radius:4px;
+}
+.opmerking-delete:hover{color:#c0455a; background:#fbeaec;}
+.opmerkingen-empty{font-size:12px; color:#b7c2c2; padding:4px 0;}
+.opmerking-add{display:flex; gap:8px; margin-top:8px;}
+.opmerking-add textarea{flex:1; min-height:40px; padding:8px 10px; border:1px solid #dfe7e7; border-radius:6px; font-size:13px; font-family:inherit;}
+.opmerking-add textarea:focus{outline:none; border-color:var(--agium-groen);}
+.opmerking-add button{
+  padding:0 16px; border:none; border-radius:6px; background:var(--agium-groen); color:#fff;
+  font-weight:600; font-size:12.5px; cursor:pointer; white-space:nowrap;
+}
+.opmerking-add button:hover{background:var(--agium-donkergroen);}
+.modal-footer{
+  padding:14px 24px 20px 24px; display:flex; justify-content:space-between; align-items:center;
+}
+.modal-delete{
+  background:none; border:1px solid #e3c6cb; color:#c0455a; padding:7px 12px; border-radius:6px;
+  font-size:12px; font-weight:600; cursor:pointer;
+}
+.modal-delete:hover{background:#c0455a; color:#fff; border-color:#c0455a;}
+.confirm-head{background:#c0455a !important;}
+.confirm-message{padding:20px 24px; font-size:14px; color:var(--text-primary); line-height:1.5;}
+.confirm-btn-no{
+  padding:8px 16px; border:1px solid #d9e2e2; background:#fff; border-radius:6px;
+  font-size:13px; font-weight:600; color:var(--agium-donker); cursor:pointer;
+}
+.confirm-btn-no:hover{background:#f4f7f7;}
+.confirm-btn-yes{
+  padding:8px 16px; border:none; background:#c0455a; color:#fff; border-radius:6px;
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+.confirm-btn-yes:hover{background:#a3384a;}
+#confirmOverlay{z-index:1100;}
+.modal-nav{display:flex; gap:8px;}
+.modal-nav button{
+  padding:7px 12px; border:1px solid #d9e2e2; background:#fff; border-radius:6px;
+  cursor:pointer; font-size:12px; color:var(--agium-donker); font-weight:600;
+}
+.modal-nav button:disabled{opacity:.35; cursor:not-allowed;}
+.modal-done{
+  padding:8px 18px; border:none; border-radius:6px; background:var(--agium-groen);
+  color:#fff; font-size:13px; font-weight:600; cursor:pointer;
+}
+.modal-done:hover{background:var(--agium-donkergroen);}
+
+.pagination{display:flex; justify-content:space-between; align-items:center; margin-top:12px; font-size:13px; color:var(--text-secondary);}
+.pagination button{padding:6px 12px; border:1px solid #d9e2e2; background:#fff; border-radius:6px; cursor:pointer; font-size:12px; color:var(--agium-donker);}
+.pagination button:disabled{opacity:.4; cursor:not-allowed;}
+
+.dashboard-footer{text-align:center; font-size:12px; color:var(--text-secondary); padding:16px 0 4px 0;}
+
+/* ---------- Generieke multiselect-dropdown ---------- */
+.multiselect{position:relative; display:inline-block;}
+.multiselect-btn{
+  display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:6px;
+  font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+.multiselect-btn.on-dark{
+  background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.25); color:#fff;
+}
+.multiselect-btn.on-dark:hover{background:rgba(255,255,255,.18);}
+.multiselect-btn.on-light{
+  background:#fff; border:1.5px solid #d9e2e2; color:var(--text-primary);
+}
+.multiselect-btn.on-light:hover{border-color:var(--agium-groen);}
+.ms-count{
+  background:var(--agium-groen); color:#fff; border-radius:999px; padding:1px 7px; font-size:11px; font-weight:700;
+}
+.multiselect-panel{
+  position:absolute; top:calc(100% + 6px); left:0; z-index:80; background:#fff; border-radius:8px;
+  box-shadow:0 8px 24px rgba(17,54,66,.22); padding:8px; min-width:220px; max-height:260px;
+  overflow-y:auto; display:none;
+}
+.multiselect-option{
+  display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; cursor:pointer;
+  font-size:13px; text-transform:none; letter-spacing:normal; color:var(--text-primary); white-space:nowrap;
+}
+.multiselect-option:hover{background:#f4f7f7;}
+.multiselect-option input{cursor:pointer; accent-color:var(--agium-groen);}
+.multiselect-actions{
+  display:flex; justify-content:space-between; padding:2px 8px 8px 8px; border-bottom:1px solid #eef2f2; margin-bottom:6px;
+}
+.multiselect-actions button{
+  background:none; border:none; color:var(--agium-donkergroen); font-size:12px; font-weight:600; cursor:pointer; padding:0;
+}
+.multiselect-actions button:hover{text-decoration:underline;}
+
+/* ---------- Overzicht: Aantal acties per BM ---------- */
+.overzicht-controls{
+  background:var(--bg-card); border-radius:var(--radius); padding:14px 20px;
+  box-shadow:0 1px 3px rgba(17,54,66,.08); margin-bottom:12px;
+}
+.overzicht-controls-head{
+  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;
+}
+.overzicht-controls-label{font-size:12px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.4px;}
+
+.actie-moment-toggle{display:inline-flex; background:#eef4f4; border-radius:999px; padding:3px; gap:2px;}
+.actie-moment-toggle button{
+  border:none; background:transparent; padding:6px 15px; border-radius:999px;
+  font-size:12px; font-weight:700; color:var(--text-secondary); cursor:pointer; transition:all .15s ease;
+}
+.actie-moment-toggle button.active{background:var(--agium-donker); color:#fff;}
+.actie-moment-toggle button:not(.active):hover{background:#e0eded;}
+
+.overzicht-wrap{margin-bottom:var(--gap); display:flex; gap:var(--gap); flex-wrap:wrap; align-items:stretch;}
+.overzicht-card{
+  background:var(--bg-card); border-radius:var(--radius); overflow:hidden;
+  box-shadow:0 1px 3px rgba(17,54,66,.08); width:100%; max-width:560px; flex:0 0 auto;
+}
+.overzicht-banner{
+  background:var(--agium-donker); color:#fff; text-align:center; font-weight:700;
+  font-size:14px; letter-spacing:.4px; padding:11px 0;
+}
+table.overzicht-table{width:100%; border-collapse:collapse; font-size:13.5px;}
+.overzicht-table thead th{
+  background:#eaf6f7; color:var(--agium-donker); font-weight:700; text-align:center;
+  padding:9px 12px; border-bottom:1px solid #cfe6e8;
+}
+.overzicht-table thead th:first-child{text-align:left;}
+.overzicht-table tbody td{
+  background:#eaf6f7; padding:8px 12px; text-align:center; color:var(--text-primary);
+  border-bottom:1px solid #d7ebed;
+}
+.overzicht-table tbody tr:nth-child(even) td{background:#e0f0f2;}
+.overzicht-table tbody td:first-child{text-align:left; font-weight:700; color:var(--agium-donker);}
+.overzicht-table tfoot td{
+  font-weight:700; color:var(--agium-donker); background:#cfe6e8;
+  border-top:2px solid var(--agium-donker); padding:9px 12px; text-align:center;
+}
+.overzicht-table tfoot td:first-child{text-align:left;}
+
+.highlight-card{
+  flex:1; min-width:240px; background:var(--bg-card); border-radius:var(--radius);
+  box-shadow:0 1px 3px rgba(17,54,66,.08); padding:24px 26px;
+  display:flex; flex-direction:column; justify-content:center; gap:16px;
+}
+.highlight-label{
+  font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-secondary); margin-bottom:6px;
+}
+.highlight-value{font-size:38px; font-weight:800; color:var(--agium-donker); line-height:1;}
+.highlight-sub{display:flex; flex-direction:column; gap:10px; font-size:13px; color:var(--text-primary); margin-top:4px;}
+.highlight-sub-row{display:flex; align-items:center; gap:8px;}
+.highlight-dot{display:inline-block; width:9px; height:9px; border-radius:50%; flex-shrink:0;}
+.dot-groen{background:var(--agium-groen);}
+.dot-roze{background:var(--agium-roze);}
+
+@media (max-width:768px){
+  .kpi-row{grid-template-columns:repeat(2,1fr);}
+  .chart-row{grid-template-columns:1fr;}
+  .filters-bar{flex-direction:column; align-items:stretch;}
+  .filter-group select{min-width:120px;}
+  .overzicht-card{max-width:100%;}
+}
+</style>
+</head>
+<body>
+<div class="dashboard-container">
+
+  <div id="setupBanner" class="setup-banner" style="display:none;">
+    <strong>⚠️ Supabase nog niet gekoppeld.</strong>
+    Vul <code>SUPABASE_URL</code> en <code>SUPABASE_ANON_KEY</code> in bovenaan de <code>&lt;script&gt;</code>-sectie van dit bestand (zie README.md) en herlaad de pagina.
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-box">
+      <div class="loading-spinner"></div>
+      <p>Data laden vanuit Supabase…</p>
+    </div>
+  </div>
+
+  <div class="top-bar">
+    <div class="title-block">
+      <img src="data:image/png;base64,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" alt="Agium" class="agium-logo">
+    </div>
+    <div class="sync-status" id="syncStatus">
+      <span class="sync-dot"></span> <span id="syncStatusText">Verbinden…</span>
+    </div>
+    <div class="tab-switch" id="tabSwitch">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="events">Events</button>
+    </div>
+  </div>
+
+  <!-- ================= DASHBOARD VIEW ================= -->
+  <div class="view active" id="view-dashboard">
+
+    <div class="filters-bar" id="filters"></div>
+
+    <section class="kpi-row" id="kpiRow"></section>
+
+    <section class="overzicht-controls">
+      <div class="overzicht-controls-head">
+        <span class="overzicht-controls-label">Events meenemen in dit overzicht:</span>
+        <div class="actie-moment-toggle" id="actieMomentToggle">
+          <button type="button" data-mode="alle" class="active">Alle</button>
+          <button type="button" data-mode="voor">Voor</button>
+          <button type="button" data-mode="na">Na</button>
+        </div>
+      </div>
+      <div id="overzichtEventMultiSelect"></div>
+    </section>
+
+    <section class="overzicht-wrap">
+      <div class="overzicht-card">
+        <div class="overzicht-banner">Aantal acties</div>
+        <table class="overzicht-table" id="overzichtTable">
+          <thead>
+            <tr><th></th><th>Visit</th><th>Teams</th><th>Call</th><th>Mail</th></tr>
+          </thead>
+          <tbody id="overzichtBody"></tbody>
+          <tfoot>
+            <tr id="overzichtTotaalRow"></tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="highlight-card" id="overzichtHighlight"></div>
+    </section>
+
+    <section class="chart-row">
+      <div class="chart-container">
+        <h3>Contacten per Business Manager</h3>
+        <canvas id="chartBM"></canvas>
+      </div>
+      <div class="chart-container">
+        <h3>Propositie-verdeling</h3>
+        <canvas id="chartPropositie"></canvas>
+      </div>
+    </section>
+
+    <section class="chart-row">
+      <div class="chart-container">
+        <h3>Actietype: Voor vs Na event</h3>
+        <canvas id="chartActie"></canvas>
+      </div>
+      <div class="chart-container">
+        <h3>Aanwezigheid per event</h3>
+        <canvas id="chartAanwezig"></canvas>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ================= EVENTS VIEW ================= -->
+  <div class="view" id="view-events">
+
+    <div class="event-picker" id="eventPicker"></div>
+
+    <section class="kpi-row" id="eventKpiRow"></section>
+
+    <section class="table-section">
+      <h3 id="eventTableTitle">Contacten</h3>
+      <div class="table-meta">
+        <span id="eventTableMeta"></span>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <span class="changes-badge" id="changesBadge">0 wijzigingen</span>
+          <button class="btn-add-contact" id="addContactBtn">+ Nieuw contact</button>
+          <input type="text" id="searchBox" class="cell-text" placeholder="Zoek op naam of organisatie…" style="border:1px solid #d9e2e2; min-width:220px;">
+          <button class="btn-export" id="exportExcelBtn">Exporteer alles naar Excel</button>
+          <button class="btn-export" id="exportBtn">JSON-export (technisch)</button>
+        </div>
+      </div>
+      <table class="data-table" id="dataTable">
+        <colgroup>
+          <col class="col-aanwezig"><col class="col-org"><col class="col-contact">
+          <col class="col-functie"><col class="col-tags"><col class="col-chevron">
+        </colgroup>
+        <thead>
+          <tr>
+            <th data-key="aanwezig">Aanwezig</th>
+            <th data-key="organisatie">Organisatie</th>
+            <th data-key="contact">Contactpersoon</th>
+            <th data-key="functie">Functietitel</th>
+            <th>BM / Actie / Propositie</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="pagination">
+        <span id="pageInfo"></span>
+        <div>
+          <button id="prevPage">‹ Vorige</button>
+          <button id="nextPage">Volgende ›</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ================= DETAIL MODAL ================= -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box">
+      <div class="modal-head">
+        <button class="modal-close" id="modalClose">×</button>
+        <input type="text" id="modalNameInput" class="modal-name-input" placeholder="Naam contactpersoon">
+        <div class="modal-orgfunctie-row">
+          <input type="text" id="modalOrgInput" class="modal-orgfunctie-input" placeholder="Organisatie" style="flex:1;">
+          <span class="modal-dash">—</span>
+          <input type="text" id="modalFunctieInput" class="modal-orgfunctie-input" placeholder="Functietitel" style="flex:1;">
+        </div>
+      </div>
+      <div class="modal-contact-info">
+        <div>📅 <span id="modalEvent"></span></div>
+        <button type="button" id="modalEditContactBtn" class="modal-edit-contact-btn">✏️ Contact aanpassen</button>
+      </div>
+      <div class="modal-form">
+        <div class="form-row">
+          <label>Aanwezig</label>
+          <select id="modalAanwezig"></select>
+        </div>
+        <div class="form-row">
+          <label>Business Manager</label>
+          <select id="modalBM"></select>
+        </div>
+        <div class="form-row">
+          <label>Actie (voor event)</label>
+          <select id="modalActieVoor"></select>
+        </div>
+        <div class="form-row">
+          <label>Actie (na event)</label>
+          <select id="modalActieNa"></select>
+        </div>
+        <div class="form-row">
+          <label>Propositie</label>
+          <select id="modalPropositie"></select>
+        </div>
+        <div class="form-row">
+          <label>Response</label>
+          <div class="toggle-3 " id="modalResponse" data-field="response">
+            <button type="button" data-value="">–</button>
+            <button type="button" data-value="Ja">Ja</button>
+            <button type="button" data-value="Nee">Nee</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Afspraak</label>
+          <div class="toggle-3" id="modalAfspraak" data-field="afspraak">
+            <button type="button" data-value="">–</button>
+            <button type="button" data-value="Ja">Ja</button>
+            <button type="button" data-value="Nee">Nee</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Aanvraag</label>
+          <div class="toggle-3" id="modalAanvraag" data-field="aanvraag">
+            <button type="button" data-value="">–</button>
+            <button type="button" data-value="Ja">Ja</button>
+            <button type="button" data-value="Nee">Nee</button>
+          </div>
+        </div>
+        <div class="form-row full">
+          <label>Type klant</label>
+          <div class="toggle-2" id="modalKlantType" data-field="klant_type">
+            <button type="button" data-value="Bestaand">Bestaande klant</button>
+            <button type="button" data-value="Nieuw">Nieuwe business</button>
+          </div>
+        </div>
+        <div class="form-row full">
+          <label>Opmerkingen</label>
+          <div class="opmerkingen-log" id="modalOpmerkingenList"></div>
+          <div class="opmerking-add">
+            <textarea id="modalOpmerkingInput" placeholder="Nieuwe opmerking toevoegen…"></textarea>
+            <button type="button" id="modalAddOpmerking">Toevoegen</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-delete" id="modalDeleteBtn">🗑 Verwijderen</button>
+        <div class="modal-nav">
+          <button id="modalPrev">‹ Vorige contact</button>
+          <button id="modalNext">Volgende contact ›</button>
+        </div>
+        <button class="modal-done" id="modalDone">Gereed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= BEVESTIGINGS-MODAL ================= -->
+  <div class="modal-overlay" id="confirmOverlay">
+    <div class="modal-box" style="max-width:380px;">
+      <div class="modal-head confirm-head">
+        <h2 id="confirmTitle">Weet je het zeker?</h2>
+      </div>
+      <div class="confirm-message" id="confirmMessage"></div>
+      <div class="modal-footer" style="justify-content:flex-end; gap:10px;">
+        <button type="button" id="confirmNo" class="confirm-btn-no">Nee</button>
+        <button type="button" id="confirmYes" class="confirm-btn-yes">Ja, verwijderen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= NIEUW EVENT MODAL ================= -->
+  <div class="modal-overlay" id="addEventOverlay">
+    <div class="modal-box" style="max-width:420px;">
+      <div class="modal-head">
+        <button class="modal-close" id="addEventClose">×</button>
+        <h2>Nieuw event toevoegen</h2>
+        <p>Voeg een event toe aan de events-tab</p>
+      </div>
+      <div class="modal-form" style="grid-template-columns:1fr;">
+        <div class="form-row">
+          <label>Naam van het event</label>
+          <input type="text" id="newEventName" class="cell-text" placeholder="bijv. 10 Sep | Klantendag" style="padding:8px 10px; border:1px solid #dfe7e7; border-radius:6px; font-size:13px;">
+        </div>
+        <div class="form-row">
+          <label>Datum (optioneel)</label>
+          <input type="date" id="newEventDate" style="padding:8px 10px; border:1px solid #dfe7e7; border-radius:6px; font-size:13px; font-family:inherit;">
+        </div>
+        <div class="form-row full" style="color:#c0455a; font-size:12.5px; min-height:16px;" id="newEventError"></div>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end; gap:10px;">
+        <button class="modal-nav" id="addEventCancel" style="padding:8px 16px; border:1px solid #d9e2e2; background:#fff; border-radius:6px; font-size:13px; font-weight:600; color:var(--agium-donker); cursor:pointer;">Annuleren</button>
+        <button class="modal-done" id="addEventSave">Event toevoegen</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="dashboard-footer">
+    Data live gesynchroniseerd via Supabase · Agium Sales Dashboard
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   SUPABASE CONFIGURATIE
+   Vul deze twee waarden in nadat je het project hebt aangemaakt op
+   supabase.com (Project Settings > API). Zie README.md voor de volledige
+   stappen (schema + seed data draaien, hierna deze twee regels invullen).
+   ========================================================================= */
+const SUPABASE_URL = 'PLAK_HIER_JE_SUPABASE_PROJECT_URL';
+const SUPABASE_ANON_KEY = 'PLAK_HIER_JE_SUPABASE_ANON_KEY';
+
+const IS_CONFIGURED = !SUPABASE_URL.startsWith(https://ujwkoyqyxbydbxkgpxkx.supabase.co
+) && !SUPABASE_ANON_KEY.startsWith(sb_publishable_BBJ0RVh4yXvw4YrRTKw1Zw_rJtOMB32);
+const sb = IS_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+let DATA = [];              // contacten, live gesynchroniseerd met Supabase-tabel 'contacts'
+let EVENT_ORDER = [];        // event-namen, gesorteerd op sort_order (uit tabel 'events')
+let eventSortOrders = {};    // { eventNaam: sort_order } — voor het invoegen van nieuwe events op de juiste plek
+
+function formatDateNL(isoDate){
+  const d = new Date(isoDate);
+  if(isNaN(d)) return null;
+  return d.toLocaleDateString('nl-NL', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function nowNL(){
+  return new Date().toLocaleString('nl-NL', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+function opmerkingenToText(r){
+  if(!r.opmerkingen || !r.opmerkingen.length) return '';
+  return r.opmerkingen.map(o => o.ts ? `[${o.ts}] ${o.text}` : o.text).join('\n');
+}
+
+/* ---------------- Sync-status & toasts ---------------- */
+function setSyncStatus(mode, text){
+  const el = document.getElementById('syncStatus');
+  el.className = 'sync-status ' + mode;
+  document.getElementById('syncStatusText').textContent = text;
+}
+let toastTimer = null;
+function showToast(message, isError){
+  const el = document.getElementById('toast');
+  el.textContent = message;
+  el.classList.toggle('error', !!isError);
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> el.classList.remove('show'), 3500);
+}
+
+/* Voert een Supabase-call uit, toont saving/live status en een foutmelding bij falen.
+   Geeft { data, error } terug zoals de Supabase-client dat doet. */
+async function persist(promise, errorLabel){
+  setSyncStatus('saving', 'Opslaan…');
+  const result = await promise;
+  if(result.error){
+    console.error(errorLabel, result.error);
+    setSyncStatus('error', 'Opslaan mislukt');
+    showToast(`Opslaan mislukt (${errorLabel}): ${result.error.message}`, true);
+  } else {
+    setSyncStatus('live', 'Live');
+  }
+  return result;
+}
+
+const AGIUM_PALETTE = ['#113642', '#43B08C', '#9ED4D8', '#007059', '#F6C6C6'];
+
+const OPTIONS = {
+  event: [],
+  bm: ["Arno","Joost","Marc","Max","Olaf","Sander","Roberto","Michael"],
+  aanwezig: ["Ja","Nee"],
+  actie: ["Call","Teams","Visit","Mail"],
+  propositie: ["ABS","AI","Deta","W&S","Kerst","Events","Golf","ABC"],
+};
+
+let editedIds = new Set();
+
+let state = {
+  activeTab: 'dashboard',
+  // dashboard filters: elk een Set (leeg = "alle")
+  filters: {
+    event: new Set(), bm: new Set(), aanwezig: new Set(), actie: new Set(), propositie: new Set(),
+    klantType: 'alle', // 'alle' | 'nieuw' | 'bestaand'
+  },
+  // eigen event-selectie voor de 'Aantal acties'-tabel + highlight-kaart (los van bovenstaande filters)
+  overzichtEvents: new Set(),
+  overzichtActieMoment: 'alle', // 'alle' | 'voor' | 'na'
+  // events-tab state
+  selectedEvent: null,
+  search: '',
+  sortKey: 'organisatie', sortDir: 1,
+  page: 0, pageSize: 25,
+};
+
+/* ---------------- Initieel laden vanuit Supabase ---------------- */
+async function initFromSupabase(){
+  if(!IS_CONFIGURED){
+    document.getElementById('setupBanner').style.display = 'block';
+    document.getElementById('loadingOverlay').classList.add('hide');
+    setSyncStatus('error', 'Niet gekoppeld');
+    return;
+  }
+
+  setSyncStatus('connecting', 'Verbinden…');
+
+  const [eventsRes, contactsRes] = await Promise.all([
+    sb.from('events').select('*').order('sort_order', {ascending:true}),
+    sb.from('contacts').select('*'),
+  ]);
+
+  if(eventsRes.error || contactsRes.error){
+    console.error(eventsRes.error || contactsRes.error);
+    setSyncStatus('error', 'Verbinding mislukt');
+    showToast('Kon geen verbinding maken met Supabase. Controleer SUPABASE_URL / SUPABASE_ANON_KEY en de RLS-policies.', true);
+    document.getElementById('loadingOverlay').classList.add('hide');
+    return;
+  }
+
+  EVENT_ORDER = eventsRes.data.map(e => e.name);
+  eventSortOrders = {};
+  eventsRes.data.forEach(e => { eventSortOrders[e.name] = e.sort_order; });
+
+  const eventDateByName = {};
+  eventsRes.data.forEach(e => { eventDateByName[e.name] = e.event_date; });
+
+  DATA = contactsRes.data.map(r => ({
+    id: r.id,
+    event: r.event_name,
+    event_date: eventDateByName[r.event_name] || null,
+    aanwezig: r.aanwezig,
+    organisatie: r.organisatie,
+    contact: r.contact,
+    functie: r.functie,
+    bm: r.bm,
+    actie_voor: r.actie_voor,
+    actie_na: r.actie_na,
+    propositie: r.propositie,
+    response: r.response,
+    afspraak: r.afspraak,
+    aanvraag: r.aanvraag,
+    klant_type: r.klant_type,
+    opmerkingen: r.opmerkingen || [],
+  }));
+
+  OPTIONS.event = EVENT_ORDER;
+  state.overzichtEvents = new Set(EVENT_ORDER.filter(e => e !== 'Boekactie'));
+  state.selectedEvent = EVENT_ORDER.length ? EVENT_ORDER[0] : null;
+
+  document.getElementById('loadingOverlay').classList.add('hide');
+  setSyncStatus('live', 'Live');
+
+  buildFilters();
+  buildOverzichtEventMultiSelect();
+  render();
+
+  subscribeRealtime();
+}
+
+/* ---------------- Realtime: wijzigingen van andere gebruikers live ophalen ---------------- */
+let realtimeRefetchTimer = null;
+function scheduleRealtimeRefetch(){
+  clearTimeout(realtimeRefetchTimer);
+  realtimeRefetchTimer = setTimeout(async ()=>{
+    const [eventsRes, contactsRes] = await Promise.all([
+      sb.from('events').select('*').order('sort_order', {ascending:true}),
+      sb.from('contacts').select('*'),
+    ]);
+    if(eventsRes.error || contactsRes.error) return;
+
+    EVENT_ORDER = eventsRes.data.map(e => e.name);
+    eventSortOrders = {};
+    eventsRes.data.forEach(e => { eventSortOrders[e.name] = e.sort_order; });
+    const eventDateByName = {};
+    eventsRes.data.forEach(e => { eventDateByName[e.name] = e.event_date; });
+
+    DATA = contactsRes.data.map(r => ({
+      id: r.id, event: r.event_name, event_date: eventDateByName[r.event_name] || null,
+      aanwezig: r.aanwezig, organisatie: r.organisatie, contact: r.contact, functie: r.functie,
+      bm: r.bm, actie_voor: r.actie_voor, actie_na: r.actie_na, propositie: r.propositie,
+      response: r.response, afspraak: r.afspraak, aanvraag: r.aanvraag, klant_type: r.klant_type,
+      opmerkingen: r.opmerkingen || [],
+    }));
+    OPTIONS.event = EVENT_ORDER;
+    if(!state.selectedEvent || !EVENT_ORDER.includes(state.selectedEvent)){
+      state.selectedEvent = EVENT_ORDER.length ? EVENT_ORDER[0] : null;
+    }
+    // Als de geopende pop-up net verwijderd is door iemand anders, sluit 'm netjes
+    if(currentModalId !== null && !DATA.some(r=>r.id===currentModalId)){
+      document.getElementById('modalOverlay').classList.remove('show');
+      currentModalId = null;
+    }
+    buildFilters();
+    buildOverzichtEventMultiSelect();
+    render();
+  }, 400);
+}
+function subscribeRealtime(){
+  sb.channel('sales-dashboard-changes')
+    .on('postgres_changes', {event:'*', schema:'public', table:'contacts'}, scheduleRealtimeRefetch)
+    .on('postgres_changes', {event:'*', schema:'public', table:'events'}, scheduleRealtimeRefetch)
+    .subscribe();
+}
+
+/* ---------------- Tab switching ---------------- */
+document.getElementById('tabSwitch').addEventListener('click', e=>{
+  const btn = e.target.closest('button[data-tab]');
+  if(!btn) return;
+  state.activeTab = btn.dataset.tab;
+  document.querySelectorAll('.tab-switch button').forEach(b=>b.classList.toggle('active', b===btn));
+  document.getElementById('view-dashboard').classList.toggle('active', state.activeTab==='dashboard');
+  document.getElementById('view-events').classList.toggle('active', state.activeTab==='events');
+  render();
+});
+
+/* ---------------- Generieke multiselect-dropdown ---------------- */
+const openMultiSelectPanels = [];
+function closeAllMultiSelectPanels(){
+  openMultiSelectPanels.forEach(p => p.style.display = 'none');
+}
+document.addEventListener('click', closeAllMultiSelectPanels);
+
+function buildMultiSelect({container, options, selectedSet, label, theme, onChange}){
+  container.innerHTML = '';
+  const wrapper = document.createElement('div');
+  wrapper.className = 'multiselect';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'multiselect-btn ' + (theme === 'dark' ? 'on-dark' : 'on-light');
+
+  const panel = document.createElement('div');
+  panel.className = 'multiselect-panel';
+  panel.addEventListener('click', e => e.stopPropagation());
+
+  function updateLabel(){
+    btn.innerHTML = selectedSet.size
+      ? `${label} <span class="ms-count">${selectedSet.size}</span> ▾`
+      : `${label}: Alle ▾`;
+  }
+  updateLabel();
+
+  const checkboxes = [];
+
+  const actions = document.createElement('div');
+  actions.className = 'multiselect-actions';
+  const selAllBtn = document.createElement('button'); selAllBtn.type='button'; selAllBtn.textContent='Alles';
+  const selNoneBtn = document.createElement('button'); selNoneBtn.type='button'; selNoneBtn.textContent='Geen';
+  selAllBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    options.forEach(o=>selectedSet.add(o));
+    checkboxes.forEach(cb=>cb.checked=true);
+    updateLabel(); onChange();
+  });
+  selNoneBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    selectedSet.clear();
+    checkboxes.forEach(cb=>cb.checked=false);
+    updateLabel(); onChange();
+  });
+  actions.appendChild(selAllBtn); actions.appendChild(selNoneBtn);
+  panel.appendChild(actions);
+
+  options.forEach(opt=>{
+    const row = document.createElement('label');
+    row.className = 'multiselect-option';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selectedSet.has(opt);
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) selectedSet.add(opt); else selectedSet.delete(opt);
+      updateLabel();
+      onChange();
+    });
+    checkboxes.push(cb);
+    const span = document.createElement('span');
+    span.textContent = opt;
+    row.appendChild(cb); row.appendChild(span);
+    panel.appendChild(row);
+  });
+
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    const isOpen = panel.style.display === 'block';
+    closeAllMultiSelectPanels();
+    panel.style.display = isOpen ? 'none' : 'block';
+  });
+
+  wrapper.appendChild(btn);
+  wrapper.appendChild(panel);
+  container.appendChild(wrapper);
+  openMultiSelectPanels.push(panel);
+}
+
+/* ---------------- Dashboard filters ---------------- */
+function buildFilters(){
+  const container = document.getElementById('filters');
+  container.innerHTML = '';
+  const defs = [
+    {key:'event', label:'Event', opts: OPTIONS.event},
+    {key:'bm', label:'Business Manager', opts: OPTIONS.bm},
+    {key:'aanwezig', label:'Aanwezig', opts: OPTIONS.aanwezig},
+    {key:'actie', label:'Actie (voor/na)', opts: OPTIONS.actie},
+    {key:'propositie', label:'Propositie', opts: OPTIONS.propositie},
+  ];
+  defs.forEach(def=>{
+    const g = document.createElement('div');
+    g.className='filter-group';
+    const lbl = document.createElement('label');
+    lbl.textContent = def.label;
+    const msContainer = document.createElement('div');
+    g.appendChild(lbl); g.appendChild(msContainer);
+    container.appendChild(g);
+    buildMultiSelect({
+      container: msContainer,
+      options: def.opts,
+      selectedSet: state.filters[def.key],
+      label: def.label,
+      theme: 'dark',
+      onChange: render,
+    });
+  });
+
+  // Type klant: segmented toggle (Alle / Nieuwe business / Bestaande klant)
+  const ktGroup = document.createElement('div');
+  ktGroup.className = 'filter-group';
+  const ktLbl = document.createElement('label');
+  ktLbl.textContent = 'Type klant';
+  const ktToggle = document.createElement('div');
+  ktToggle.className = 'filter-toggle';
+  [['alle','Alle'], ['nieuw','Nieuwe business'], ['bestaand','Bestaande klant']].forEach(([val, txt])=>{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.value = val;
+    b.textContent = txt;
+    if(state.filters.klantType === val) b.classList.add('active');
+    b.addEventListener('click', ()=>{
+      state.filters.klantType = val;
+      ktToggle.querySelectorAll('button').forEach(btn=>btn.classList.toggle('active', btn===b));
+      render();
+    });
+    ktToggle.appendChild(b);
+  });
+  ktGroup.appendChild(ktLbl); ktGroup.appendChild(ktToggle);
+  container.appendChild(ktGroup);
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className='btn-reset';
+  resetBtn.textContent='Reset filters';
+  resetBtn.addEventListener('click', ()=>{
+    defs.forEach(d=> state.filters[d.key].clear());
+    state.filters.klantType = 'alle';
+    buildFilters();
+    render();
+  });
+  container.appendChild(resetBtn);
+}
+
+function getDashboardFiltered(){
+  const f = state.filters;
+  return DATA.filter(r=>{
+    if(f.event.size && !f.event.has(r.event)) return false;
+    if(f.bm.size && !f.bm.has(r.bm)) return false;
+    if(f.aanwezig.size && !f.aanwezig.has(r.aanwezig)) return false;
+    if(f.actie.size && !(f.actie.has(r.actie_voor) || f.actie.has(r.actie_na))) return false;
+    if(f.propositie.size && !f.propositie.has(r.propositie)) return false;
+    if(f.klantType === 'nieuw' && r.klant_type !== 'Nieuw') return false;
+    if(f.klantType === 'bestaand' && r.klant_type !== 'Bestaand') return false;
+    return true;
+  });
+}
+
+function renderKPIs(filtered, targetId){
+  const totaal = filtered.length;
+  const aanwezigJa = filtered.filter(r=>r.aanwezig==='Ja').length;
+  const orgSet = new Set(filtered.map(r=>r.organisatie).filter(Boolean));
+  const acties = filtered.filter(r=>r.actie_voor || r.actie_na).length;
+  const aanvraagJa = filtered.filter(r=>r.aanvraag==='Ja').length;
+
+  const cards = [
+    {label:'Totaal contacten', value: totaal.toLocaleString('nl-NL')},
+    {label:'Aanwezig (Ja)', value: aanwezigJa.toLocaleString('nl-NL'), sub: totaal ? `${((aanwezigJa/totaal)*100).toFixed(1)}% van selectie` : ''},
+    {label:'Unieke organisaties', value: orgSet.size.toLocaleString('nl-NL')},
+    {label:'Contacten met actie', value: acties.toLocaleString('nl-NL')},
+    {label:'Aanvragen (Ja)', value: aanvraagJa.toLocaleString('nl-NL'), sub: totaal ? `${((aanvraagJa/totaal)*100).toFixed(1)}% van selectie` : ''},
+  ];
+  const row = document.getElementById(targetId);
+  row.innerHTML = cards.map(c=>`
+    <div class="kpi-card">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}</div>
+      ${c.sub ? `<div class="kpi-sub">${c.sub}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+const BM_OVERZICHT_ORDER = ["Arno","Joost","Marc","Max","Olaf","Roberto","Sander","Michael"];
+const ACTIE_OVERZICHT_ORDER = ["Visit","Teams","Call","Mail"];
+
+function buildOverzichtEventMultiSelect(){
+  const container = document.getElementById('overzichtEventMultiSelect');
+  buildMultiSelect({
+    container,
+    options: EVENT_ORDER.filter(e => e !== 'Boekactie'),
+    selectedSet: state.overzichtEvents,
+    label: 'Events',
+    theme: 'light',
+    onChange: ()=> renderOverzicht(getDashboardFiltered()),
+  });
+}
+
+document.getElementById('actieMomentToggle').addEventListener('click', e=>{
+  const btn = e.target.closest('button[data-mode]');
+  if(!btn) return;
+  state.overzichtActieMoment = btn.dataset.mode;
+  document.querySelectorAll('#actieMomentToggle button').forEach(b=>b.classList.toggle('active', b===btn));
+  renderOverzicht(getDashboardFiltered());
+});
+
+function matchActie(r, a){
+  if(state.overzichtActieMoment === 'voor') return r.actie_voor === a;
+  if(state.overzichtActieMoment === 'na') return r.actie_na === a;
+  return r.actie_voor === a || r.actie_na === a;
+}
+
+function renderOverzicht(filtered){
+  const scoped = filtered.filter(r => state.overzichtEvents.has(r.event));
+  const tbody = document.getElementById('overzichtBody');
+  const bmTotals = BM_OVERZICHT_ORDER.map(bm=>{
+    const counts = ACTIE_OVERZICHT_ORDER.map(a =>
+      scoped.filter(r => r.bm===bm && matchActie(r, a)).length
+    );
+    return { bm, counts, total: counts.reduce((s,c)=>s+c,0) };
+  });
+
+  tbody.innerHTML = bmTotals.map(({bm, counts}) =>
+    `<tr><td>${esc(bm)}</td>${counts.map(c=>`<td>${c}</td>`).join('')}</tr>`
+  ).join('');
+
+  const totals = ACTIE_OVERZICHT_ORDER.map(a =>
+    scoped.filter(r => matchActie(r, a)).length
+  );
+  document.getElementById('overzichtTotaalRow').innerHTML =
+    `<td>Totaal</td>${totals.map(c=>`<td>${c}</td>`).join('')}`;
+
+  // Highlight-kaart naast de tabel
+  const totalActies = totals.reduce((s,c)=>s+c,0);
+  const highlightEl = document.getElementById('overzichtHighlight');
+  if(bmTotals.every(x=>x.total===0)){
+    highlightEl.innerHTML = `
+      <div class="highlight-label">Totaal acties</div>
+      <div class="highlight-value">0</div>
+      <div class="highlight-sub">Geen acties in deze selectie.</div>
+    `;
+    return;
+  }
+  const top = bmTotals.reduce((best,x)=> x.total>best.total?x:best, bmTotals[0]);
+  const laagste = bmTotals.reduce((low,x)=> x.total<low.total?x:low, bmTotals[0]);
+  highlightEl.innerHTML = `
+    <div>
+      <div class="highlight-label">Totaal acties (alle BM's)</div>
+      <div class="highlight-value">${totalActies}</div>
+    </div>
+    <div class="highlight-sub">
+      <div class="highlight-sub-row"><span class="highlight-dot dot-groen"></span>Meest actief: <strong>${esc(top.bm)}</strong> — ${top.total} acties</div>
+      <div class="highlight-sub-row"><span class="highlight-dot dot-roze"></span>Minst actief: <strong>${esc(laagste.bm)}</strong> — ${laagste.total} acties</div>
+    </div>
+  `;
+}
+
+let charts = {};
+function renderOrCreate(canvasId, type, data, extraOptions){
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  if(charts[canvasId]){
+    charts[canvasId].data = data;
+    charts[canvasId].options = Object.assign({responsive:true, maintainAspectRatio:false, animation:false}, extraOptions);
+    charts[canvasId].update('none');
+  } else {
+    charts[canvasId] = new Chart(ctx, {
+      type, data,
+      options: Object.assign({responsive:true, maintainAspectRatio:false, animation:false}, extraOptions)
+    });
+  }
+}
+
+function renderCharts(filtered){
+  const bmCounts = OPTIONS.bm.map(bm => filtered.filter(r=>r.bm===bm).length);
+  renderOrCreate('chartBM','bar',{
+    labels: OPTIONS.bm,
+    datasets:[{label:'Contacten', data: bmCounts, backgroundColor: OPTIONS.bm.map((_,i)=>AGIUM_PALETTE[i%AGIUM_PALETTE.length])}]
+  }, {plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}}});
+
+  const propCounts = OPTIONS.propositie.map(p => filtered.filter(r=>r.propositie===p).length);
+  renderOrCreate('chartPropositie','doughnut',{
+    labels: OPTIONS.propositie,
+    datasets:[{data: propCounts, backgroundColor: OPTIONS.propositie.map((_,i)=>AGIUM_PALETTE[i%AGIUM_PALETTE.length])}]
+  }, {plugins:{legend:{position:'right', labels:{boxWidth:12,font:{size:11}}}}});
+
+  const voorCounts = OPTIONS.actie.map(a => filtered.filter(r=>r.actie_voor===a).length);
+  const naCounts = OPTIONS.actie.map(a => filtered.filter(r=>r.actie_na===a).length);
+  renderOrCreate('chartActie','bar',{
+    labels: OPTIONS.actie,
+    datasets:[
+      {label:'Voor event', data: voorCounts, backgroundColor: AGIUM_PALETTE[0]},
+      {label:'Na event', data: naCounts, backgroundColor: AGIUM_PALETTE[1]},
+    ]
+  }, {scales:{y:{beginAtZero:true, ticks:{precision:0}}}});
+
+  const eventsWithDate = OPTIONS.event.filter(e=>e!=='Boekactie');
+  const jaCounts = eventsWithDate.map(e => filtered.filter(r=>r.event===e && r.aanwezig==='Ja').length);
+  const neeCounts = eventsWithDate.map(e => filtered.filter(r=>r.event===e && r.aanwezig==='Nee').length);
+  renderOrCreate('chartAanwezig','bar',{
+    labels: eventsWithDate,
+    datasets:[
+      {label:'Ja', data: jaCounts, backgroundColor: AGIUM_PALETTE[1]},
+      {label:'Nee', data: neeCounts, backgroundColor: AGIUM_PALETTE[4]},
+    ]
+  }, {indexAxis:'y', scales:{x:{beginAtZero:true, ticks:{precision:0}}}, plugins:{legend:{position:'top'}}});
+}
+
+/* ---------------- Events tab: event picker ---------------- */
+function buildEventPicker(){
+  const container = document.getElementById('eventPicker');
+  container.innerHTML = '';
+  OPTIONS.event.forEach(ev=>{
+    const count = DATA.filter(r=>r.event===ev).length;
+    const chip = document.createElement('div');
+    chip.className = 'event-chip' + (state.selectedEvent===ev ? ' active' : '');
+    chip.innerHTML = `<span class="event-chip-label">${esc(ev)}</span><span class="count">${count}</span><button type="button" class="event-chip-delete" title="Event verwijderen">×</button>`;
+    chip.addEventListener('click', ()=>{
+      state.selectedEvent = ev;
+      state.page = 0;
+      render();
+    });
+    chip.querySelector('.event-chip-delete').addEventListener('click', e=>{
+      e.stopPropagation();
+      openDeleteEventConfirm(ev);
+    });
+    container.appendChild(chip);
+  });
+
+  const addChip = document.createElement('div');
+  addChip.className = 'event-chip event-chip-add';
+  addChip.title = 'Nieuw event toevoegen';
+  addChip.innerHTML = '+';
+  addChip.addEventListener('click', openAddEventModal);
+  container.appendChild(addChip);
+}
+
+function openAddEventModal(){
+  document.getElementById('newEventName').value = '';
+  document.getElementById('newEventDate').value = '';
+  document.getElementById('newEventError').textContent = '';
+  document.getElementById('addEventOverlay').classList.add('show');
+  document.getElementById('newEventName').focus();
+}
+function closeAddEventModal(){
+  document.getElementById('addEventOverlay').classList.remove('show');
+}
+
+function computeInsertIndex(dateStr){
+  if(dateStr){
+    const idx = EVENT_ORDER.findIndex(ev=>{
+      if(ev === 'Boekactie') return true; // Boekactie blijft altijd achteraan
+      const rec = DATA.find(r=>r.event===ev && r.event_date);
+      return rec && rec.event_date > dateStr;
+    });
+    return idx === -1 ? EVENT_ORDER.length : idx;
+  }
+  const boekactieIdx = EVENT_ORDER.indexOf('Boekactie');
+  return boekactieIdx === -1 ? EVENT_ORDER.length : boekactieIdx;
+}
+
+function computeSortOrderForInsertAt(insertAt){
+  const prevName = insertAt > 0 ? EVENT_ORDER[insertAt-1] : null;
+  const nextName = insertAt < EVENT_ORDER.length ? EVENT_ORDER[insertAt] : null;
+  const prevOrder = prevName ? eventSortOrders[prevName] : null;
+  const nextOrder = nextName ? eventSortOrders[nextName] : null;
+  if(prevOrder != null && nextOrder != null) return (prevOrder + nextOrder) / 2;
+  if(prevOrder != null) return prevOrder + 1;
+  if(nextOrder != null) return nextOrder - 1;
+  return 0;
+}
+
+async function addNewEvent(){
+  const nameInput = document.getElementById('newEventName');
+  const dateInput = document.getElementById('newEventDate');
+  const errorEl = document.getElementById('newEventError');
+  const name = nameInput.value.trim();
+
+  if(!name){
+    errorEl.textContent = 'Geef het event een naam.';
+    return;
+  }
+  if(EVENT_ORDER.includes(name)){
+    errorEl.textContent = 'Er bestaat al een event met deze naam.';
+    return;
+  }
+  if(!IS_CONFIGURED){
+    errorEl.textContent = 'Supabase is niet gekoppeld — event kan niet worden opgeslagen.';
+    return;
+  }
+
+  const dateStr = dateInput.value || null;
+  const insertAt = computeInsertIndex(dateStr);
+  const sortOrder = computeSortOrderForInsertAt(insertAt);
+
+  setSyncStatus('saving', 'Aanmaken…');
+  const { data, error } = await sb.from('events').insert({name, event_date: dateStr, sort_order: sortOrder}).select().single();
+  if(error){
+    console.error(error);
+    setSyncStatus('error', 'Opslaan mislukt');
+    errorEl.textContent = `Kon event niet opslaan: ${error.message}`;
+    return;
+  }
+  setSyncStatus('live', 'Live');
+
+  EVENT_ORDER.splice(insertAt, 0, name);
+  eventSortOrders[name] = sortOrder;
+  OPTIONS.event = EVENT_ORDER;
+  state.overzichtEvents.add(name);
+  state.selectedEvent = name;
+  state.page = 0;
+
+  closeAddEventModal();
+  buildFilters();
+  buildOverzichtEventMultiSelect();
+  render();
+}
+
+document.getElementById('addEventClose').addEventListener('click', closeAddEventModal);
+document.getElementById('addEventCancel').addEventListener('click', closeAddEventModal);
+document.getElementById('addEventSave').addEventListener('click', addNewEvent);
+document.getElementById('addEventOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'addEventOverlay') closeAddEventModal();
+});
+document.getElementById('newEventName').addEventListener('keydown', e=>{
+  if(e.key === 'Enter') addNewEvent();
+});
+
+function openDeleteEventConfirm(ev){
+  const count = DATA.filter(r=>r.event===ev).length;
+  const message = count > 0
+    ? `Weet je zeker dat je het event "${ev}" wilt verwijderen? ${count} contact${count===1?'':'en'} bij dit event ${count===1?'wordt':'worden'} dan ook definitief verwijderd. Dit kan niet ongedaan worden gemaakt.`
+    : `Weet je zeker dat je het event "${ev}" wilt verwijderen? Dit kan niet ongedaan worden gemaakt.`;
+
+  openConfirm(message, ()=>{
+    // Verwijder alle contacten die bij dit event horen (lokaal — server-side gebeurt dit
+    // automatisch via ON DELETE CASCADE zodra het event zelf verwijderd wordt)
+    for(let i = DATA.length - 1; i >= 0; i--){
+      if(DATA[i].event === ev){
+        editedIds.delete(DATA[i].id);
+        pendingNewIds.delete(DATA[i].id);
+        DATA.splice(i, 1);
+      }
+    }
+    // Verwijder het event zelf uit alle plekken waar het bekend is
+    const idx = EVENT_ORDER.indexOf(ev);
+    if(idx !== -1) EVENT_ORDER.splice(idx, 1);
+    delete eventSortOrders[ev];
+    OPTIONS.event = EVENT_ORDER;
+    state.overzichtEvents.delete(ev);
+    state.filters.event.delete(ev);
+
+    if(state.selectedEvent === ev){
+      state.selectedEvent = EVENT_ORDER.length ? EVENT_ORDER[0] : null;
+      state.page = 0;
+    }
+
+    buildFilters();
+    buildOverzichtEventMultiSelect();
+    render();
+
+    if(IS_CONFIGURED){
+      persist(sb.from('events').delete().eq('name', ev), 'event verwijderen');
+    }
+  });
+}
+
+function getEventRows(){
+  let rows = DATA.filter(r=>r.event === state.selectedEvent);
+  if(state.search){
+    const q = state.search.toLowerCase();
+    rows = rows.filter(r =>
+      (r.contact||'').toLowerCase().includes(q) ||
+      (r.organisatie||'').toLowerCase().includes(q)
+    );
+  }
+  return rows;
+}
+
+function selectOptionsHtml(current, opts, includeEmpty){
+  let html = '';
+  if(includeEmpty) html += `<option value=""${!current?' selected':''}>–</option>`;
+  opts.forEach(o=>{
+    html += `<option value="${esc(o)}"${current===o?' selected':''}>${esc(o)}</option>`;
+  });
+  return html;
+}
+
+function aanwezigPill(v){
+  if(v==='Ja') return '<span class="pill pill-ja">Ja</span>';
+  if(v==='Nee') return '<span class="pill pill-nee">Nee</span>';
+  return '<span class="pill pill-none">–</span>';
+}
+
+function tagsHtml(r){
+  const chips = [];
+  if(r.klant_type === 'Nieuw') chips.push(`<span class="tag-chip tag-nieuw">🆕 Nieuwe business</span>`);
+  if(r.bm) chips.push(`<span class="tag-chip tag-bm">${esc(r.bm)}</span>`);
+  if(r.actie_voor) chips.push(`<span class="tag-chip tag-actie">voor: ${esc(r.actie_voor)}</span>`);
+  if(r.actie_na) chips.push(`<span class="tag-chip tag-actie">na: ${esc(r.actie_na)}</span>`);
+  if(r.propositie) chips.push(`<span class="tag-chip tag-propositie">${esc(r.propositie)}</span>`);
+  if(r.response) chips.push(`<span class="tag-chip">Response: ${esc(r.response)}</span>`);
+  if(r.afspraak) chips.push(`<span class="tag-chip">Afspraak: ${esc(r.afspraak)}</span>`);
+  if(r.aanvraag) chips.push(`<span class="tag-chip">Aanvraag: ${esc(r.aanvraag)}</span>`);
+  if(r.opmerkingen && r.opmerkingen.length) chips.push(`<span class="tag-chip">📝 ${r.opmerkingen.length}</span>`);
+  return chips.length ? chips.join('') : '<span class="tag-empty">Nog niets ingevuld — klik om te bewerken</span>';
+}
+
+let currentEventRows = []; // huidige gesorteerde/gefilterde rijenlijst (voor prev/next in modal)
+let currentModalId = null;
+const pendingNewIds = new Set(); // contacten aangemaakt via '+ Nieuw contact', nog niet ingevuld
+
+function isBlankContact(r){
+  return !r.contact && !r.organisatie && !r.functie &&
+    !r.aanwezig && !r.bm && !r.actie_voor && !r.actie_na && !r.propositie &&
+    !r.response && !r.afspraak && !r.aanvraag && !r.klant_type &&
+    (!r.opmerkingen || r.opmerkingen.length === 0);
+}
+
+function maybeRemoveBlankNewContact(id){
+  if(id === null || !pendingNewIds.has(id)) return;
+  const r = DATA.find(x=>x.id===id);
+  if(r && isBlankContact(r)){
+    const idx = DATA.findIndex(x=>x.id===id);
+    if(idx !== -1) DATA.splice(idx, 1);
+    editedIds.delete(id);
+    if(IS_CONFIGURED){
+      persist(sb.from('contacts').delete().eq('id', id), 'leeg contact opruimen');
+    }
+  }
+  pendingNewIds.delete(id);
+}
+
+function renderEventTable(){
+  const allRows = getEventRows();
+  const sorted = [...allRows].sort((a,b)=>{
+    const av = (a[state.sortKey] ?? '').toString().toLowerCase();
+    const bv = (b[state.sortKey] ?? '').toString().toLowerCase();
+    if(av < bv) return -1*state.sortDir;
+    if(av > bv) return 1*state.sortDir;
+    return 0;
+  });
+  currentEventRows = sorted;
+
+  const start = state.page * state.pageSize;
+  const end = Math.min(start + state.pageSize, sorted.length);
+  const pageRows = sorted.slice(start, end);
+
+  document.getElementById('eventTableTitle').textContent = state.selectedEvent
+    ? `Contacten — ${state.selectedEvent}`
+    : 'Geen events beschikbaar — voeg een nieuw event toe';
+
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = pageRows.map(r=>`
+    <tr data-id="${r.id}" class="${editedIds.has(r.id) ? 'edited':''}">
+      <td>${aanwezigPill(r.aanwezig)}</td>
+      <td>${esc(r.organisatie) || '<span class="tag-empty">–</span>'}</td>
+      <td><span class="contact-name">${esc(r.contact)}</span></td>
+      <td>${esc(r.functie) || '<span class="tag-empty">–</span>'}</td>
+      <td>${tagsHtml(r)}</td>
+      <td class="chevron">›</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('eventTableMeta').textContent = `${allRows.length} contacten bij dit event`;
+  document.getElementById('pageInfo').textContent = allRows.length
+    ? `Rij ${start+1}–${end} van ${allRows.length}`
+    : 'Geen resultaten';
+  document.getElementById('prevPage').disabled = state.page === 0;
+  document.getElementById('nextPage').disabled = end >= allRows.length;
+
+  document.querySelectorAll('#dataTable thead th[data-key]').forEach(th=>{
+    th.classList.toggle('sorted', th.dataset.key === state.sortKey);
+  });
+
+  updateChangesBadge();
+}
+
+function updateChangesBadge(){
+  const badge = document.getElementById('changesBadge');
+  if(editedIds.size > 0){
+    badge.textContent = `${editedIds.size} wijziging${editedIds.size===1?'':'en'}`;
+    badge.classList.add('show');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+/* ---------------- Detail modal ---------------- */
+document.getElementById('tableBody').addEventListener('click', e=>{
+  const tr = e.target.closest('tr[data-id]');
+  if(!tr) return;
+  openModal(tr.dataset.id);
+});
+
+document.getElementById('addContactBtn').addEventListener('click', async ()=>{
+  if(!IS_CONFIGURED){
+    showToast('Supabase is niet gekoppeld — nieuw contact kan niet worden opgeslagen.', true);
+    return;
+  }
+  if(!state.selectedEvent){
+    showToast('Selecteer of maak eerst een event aan.', true);
+    return;
+  }
+  setSyncStatus('saving', 'Aanmaken…');
+  const insertPayload = {
+    event_name: state.selectedEvent,
+    aanwezig: null, organisatie: '', contact: '', functie: '',
+    bm: null, actie_voor: null, actie_na: null, propositie: null,
+    opmerkingen: [], response: null, afspraak: null, aanvraag: null, klant_type: null,
+  };
+  const { data, error } = await sb.from('contacts').insert(insertPayload).select().single();
+  if(error){
+    console.error(error);
+    setSyncStatus('error', 'Opslaan mislukt');
+    showToast(`Kon nieuw contact niet aanmaken: ${error.message}`, true);
+    return;
+  }
+  setSyncStatus('live', 'Live');
+
+  const existingForEvent = DATA.find(r=>r.event===state.selectedEvent);
+  const blank = {
+    id: data.id,
+    event: state.selectedEvent,
+    event_date: existingForEvent ? existingForEvent.event_date : null,
+    aanwezig: null,
+    organisatie: '',
+    contact: '',
+    functie: '',
+    bm: null,
+    actie_voor: null,
+    actie_na: null,
+    propositie: null,
+    opmerkingen: [],
+    response: null,
+    afspraak: null,
+    aanvraag: null,
+    klant_type: null,
+  };
+  DATA.push(blank);
+  editedIds.add(blank.id);
+  pendingNewIds.add(blank.id);
+  state.page = 0;
+  renderEventTable();
+  openModal(blank.id);
+});
+
+function openModal(id){
+  // Als we een andere (lege) nieuwe-contact-pop-up verlaten, ruim die eerst op
+  if(currentModalId !== null && currentModalId !== id){
+    maybeRemoveBlankNewContact(currentModalId);
+  }
+  currentModalId = id;
+  const r = DATA.find(x=>x.id===id);
+  if(!r) return;
+
+  document.getElementById('modalNameInput').value = r.contact || '';
+  document.getElementById('modalOrgInput').value = r.organisatie || '';
+  document.getElementById('modalFunctieInput').value = r.functie || '';
+  document.getElementById('modalEvent').textContent = r.event;
+  // Nieuw, nog leeg contact: meteen bewerkbaar. Bestaand contact: standaard vergrendeld.
+  setContactFieldsLocked(!pendingNewIds.has(id));
+
+  document.getElementById('modalAanwezig').innerHTML = selectOptionsHtml(r.aanwezig, OPTIONS.aanwezig, true);
+  document.getElementById('modalBM').innerHTML = selectOptionsHtml(r.bm, OPTIONS.bm, true);
+  document.getElementById('modalActieVoor').innerHTML = selectOptionsHtml(r.actie_voor, OPTIONS.actie, true);
+  document.getElementById('modalActieNa').innerHTML = selectOptionsHtml(r.actie_na, OPTIONS.actie, true);
+  document.getElementById('modalPropositie').innerHTML = selectOptionsHtml(r.propositie, OPTIONS.propositie, true);
+  syncToggle3('modalResponse', r.response);
+  syncToggle3('modalAfspraak', r.afspraak);
+  syncToggle3('modalAanvraag', r.aanvraag);
+  syncToggle3('modalKlantType', r.klant_type);
+  renderOpmerkingenList(r);
+  document.getElementById('modalOpmerkingInput').value = '';
+
+  const idx = currentEventRows.findIndex(x=>x.id===id);
+  document.getElementById('modalPrev').disabled = idx <= 0;
+  document.getElementById('modalNext').disabled = idx === -1 || idx >= currentEventRows.length-1;
+
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+const CONTACT_INFO_FIELD_IDS = ['modalNameInput','modalOrgInput','modalFunctieInput'];
+function setContactFieldsLocked(locked){
+  CONTACT_INFO_FIELD_IDS.forEach(id=>{
+    const el = document.getElementById(id);
+    el.readOnly = locked;
+  });
+  const btn = document.getElementById('modalEditContactBtn');
+  btn.textContent = locked ? '✏️ Contact aanpassen' : '🔒 Vergrendelen';
+  btn.classList.toggle('unlocked', !locked);
+}
+document.getElementById('modalEditContactBtn').addEventListener('click', ()=>{
+  const currentlyLocked = document.getElementById('modalNameInput').readOnly;
+  setContactFieldsLocked(!currentlyLocked);
+  if(currentlyLocked) document.getElementById('modalNameInput').focus();
+});
+
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('show');
+  maybeRemoveBlankNewContact(currentModalId);
+  currentModalId = null;
+  renderEventTable(); // toon eventueel bijgewerkte tags/pill in de tabel
+  if(state.activeTab === 'events'){
+    const eventRows = DATA.filter(r=>r.event===state.selectedEvent);
+    renderKPIs(eventRows, 'eventKpiRow');
+  }
+}
+
+/* ---------------- Generieke bevestigingsmodal (Ja/Nee) ---------------- */
+let confirmCallback = null;
+function openConfirm(message, onYes){
+  document.getElementById('confirmMessage').textContent = message;
+  confirmCallback = onYes;
+  document.getElementById('confirmOverlay').classList.add('show');
+}
+function closeConfirm(){
+  document.getElementById('confirmOverlay').classList.remove('show');
+  confirmCallback = null;
+}
+document.getElementById('confirmYes').addEventListener('click', ()=>{
+  const cb = confirmCallback;
+  closeConfirm();
+  if(cb) cb();
+});
+document.getElementById('confirmNo').addEventListener('click', closeConfirm);
+document.getElementById('confirmOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'confirmOverlay') closeConfirm();
+});
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape' && document.getElementById('confirmOverlay').classList.contains('show')) closeConfirm();
+});
+
+/* ---------------- Contact verwijderen ---------------- */
+document.getElementById('modalDeleteBtn').addEventListener('click', ()=>{
+  const id = currentModalId;
+  const r = DATA.find(x=>x.id===id);
+  if(!r) return;
+  const naam = r.contact || 'dit contact';
+  openConfirm(`Weet je zeker dat je "${naam}" wilt verwijderen? Dit kan niet ongedaan worden gemaakt.`, ()=>{
+    const idx = DATA.findIndex(x=>x.id===id);
+    if(idx !== -1) DATA.splice(idx, 1);
+    editedIds.delete(id);
+    pendingNewIds.delete(id);
+    closeModal();
+    if(IS_CONFIGURED){
+      persist(sb.from('contacts').delete().eq('id', id), 'contact verwijderen');
+    }
+  });
+});
+
+function commitModalField(field, value){
+  if(currentModalId === null) return;
+  const r = DATA.find(x=>x.id===currentModalId);
+  if(!r) return;
+  r[field] = value || null;
+  editedIds.add(currentModalId);
+  updateChangesBadge();
+  if(IS_CONFIGURED){
+    persist(sb.from('contacts').update({[field]: r[field]}).eq('id', r.id), field);
+  }
+}
+
+['modalAanwezig','modalBM','modalActieVoor','modalActieNa'].forEach(id=>{
+  const fieldMap = {modalAanwezig:'aanwezig', modalBM:'bm', modalActieVoor:'actie_voor', modalActieNa:'actie_na'};
+  document.getElementById(id).addEventListener('change', e=>{
+    commitModalField(fieldMap[id], e.target.value);
+  });
+});
+document.getElementById('modalPropositie').addEventListener('change', e=>{
+  commitModalField('propositie', e.target.value);
+});
+
+['modalNameInput','modalOrgInput','modalFunctieInput'].forEach(id=>{
+  const fieldMap = {
+    modalNameInput:'contact', modalOrgInput:'organisatie', modalFunctieInput:'functie',
+  };
+  document.getElementById(id).addEventListener('input', e=>{
+    commitModalField(fieldMap[id], e.target.value);
+  });
+});
+
+function syncToggle3(containerId, value){
+  const container = document.getElementById(containerId);
+  container.querySelectorAll('button').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.value === (value || ''));
+  });
+}
+
+['modalResponse','modalAfspraak','modalAanvraag','modalKlantType'].forEach(containerId=>{
+  document.getElementById(containerId).addEventListener('click', e=>{
+    const btn = e.target.closest('button[data-value]');
+    if(!btn) return;
+    const field = document.getElementById(containerId).dataset.field;
+    commitModalField(field, btn.dataset.value);
+    syncToggle3(containerId, btn.dataset.value);
+  });
+});
+
+function renderOpmerkingenList(r){
+  const el = document.getElementById('modalOpmerkingenList');
+  if(!r.opmerkingen || !r.opmerkingen.length){
+    el.innerHTML = '<div class="opmerkingen-empty">Nog geen opmerkingen — voeg de eerste toe hieronder.</div>';
+    return;
+  }
+  // Nieuwste bovenaan, maar met behoud van de originele index (voor verwijderen)
+  const ordered = r.opmerkingen.map((o, idx) => ({...o, idx})).reverse();
+  el.innerHTML = ordered.map(o => `
+    <div class="opmerking-entry">
+      <div class="opmerking-entry-text">
+        ${o.ts ? `<span class="ts">${esc(o.ts)}</span>` : ''}
+        ${esc(o.text)}
+      </div>
+      <button type="button" class="opmerking-delete" data-idx="${o.idx}" title="Opmerking verwijderen">×</button>
+    </div>
+  `).join('');
+}
+
+document.getElementById('modalOpmerkingenList').addEventListener('click', e=>{
+  const btn = e.target.closest('.opmerking-delete');
+  if(!btn) return;
+  const idx = Number(btn.dataset.idx);
+  const contactId = currentModalId;
+  const r = DATA.find(x=>x.id===contactId);
+  if(!r) return;
+  openConfirm('Weet je zeker dat je deze opmerking wilt verwijderen? Dit kan niet ongedaan worden gemaakt.', ()=>{
+    r.opmerkingen.splice(idx, 1);
+    editedIds.add(contactId);
+    updateChangesBadge();
+    renderOpmerkingenList(r);
+    if(IS_CONFIGURED){
+      persist(sb.from('contacts').update({opmerkingen: r.opmerkingen}).eq('id', r.id), 'opmerking verwijderen');
+    }
+  });
+});
+
+document.getElementById('modalAddOpmerking').addEventListener('click', ()=>{
+  if(currentModalId === null) return;
+  const input = document.getElementById('modalOpmerkingInput');
+  const text = input.value.trim();
+  if(!text) return;
+  const r = DATA.find(x=>x.id===currentModalId);
+  if(!r) return;
+  if(!r.opmerkingen) r.opmerkingen = [];
+  r.opmerkingen.push({ ts: nowNL(), text, origin:'toegevoegd' });
+  editedIds.add(currentModalId);
+  updateChangesBadge();
+  renderOpmerkingenList(r);
+  input.value = '';
+  if(IS_CONFIGURED){
+    persist(sb.from('contacts').update({opmerkingen: r.opmerkingen}).eq('id', r.id), 'opmerking toevoegen');
+  }
+});
+
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.getElementById('modalDone').addEventListener('click', closeModal);
+document.getElementById('modalOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'modalOverlay') closeModal();
+});
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape' && document.getElementById('modalOverlay').classList.contains('show')) closeModal();
+});
+document.getElementById('modalPrev').addEventListener('click', ()=>{
+  const idx = currentEventRows.findIndex(x=>x.id===currentModalId);
+  if(idx > 0) openModal(currentEventRows[idx-1].id);
+});
+document.getElementById('modalNext').addEventListener('click', ()=>{
+  const idx = currentEventRows.findIndex(x=>x.id===currentModalId);
+  if(idx !== -1 && idx < currentEventRows.length-1) openModal(currentEventRows[idx+1].id);
+});
+
+document.getElementById('searchBox').addEventListener('input', e=>{
+  state.search = e.target.value;
+  state.page = 0;
+  renderEventTable();
+});
+
+document.querySelectorAll('#dataTable thead th[data-key]').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.dataset.key;
+    if(state.sortKey === key){ state.sortDir *= -1; }
+    else { state.sortKey = key; state.sortDir = 1; }
+    state.page = 0;
+    renderEventTable();
+  });
+});
+document.getElementById('prevPage').addEventListener('click', ()=>{ if(state.page>0){state.page--; renderEventTable();} });
+document.getElementById('nextPage').addEventListener('click', ()=>{ state.page++; renderEventTable(); });
+
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(DATA, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'agium_sales_data_bijgewerkt.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+function safeSheetName(name){
+  // Excel-tabbladnamen: max 31 tekens, geen : \ / ? * [ ]
+  return name.replace(/[:\\\/\?\*\[\]]/g, ' ').slice(0, 31);
+}
+
+document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
+  const wb = XLSX.utils.book_new();
+  const usedNames = new Set();
+
+  EVENT_ORDER.forEach(ev=>{
+    const rows = DATA.filter(r=>r.event===ev);
+    let aoa;
+    if(ev === 'Boekactie'){
+      aoa = [['Naam organisatie','Naam contactpersoon','Functietitel','BM','Actie','Geschenk','Response','Afspraak','Aanvraag','Type klant','Opmerking']];
+      rows.forEach(r=>{
+        aoa.push([r.organisatie, r.contact, r.functie, r.bm, r.actie_voor, r.propositie, r.response, r.afspraak, r.aanvraag, r.klant_type, opmerkingenToText(r)]);
+      });
+    } else {
+      aoa = [['Aanwezig','Naam organisatie','Naam contactpersoon','Functietitel','BM','Actie (Voor)','Actie (Na)','Propositie','Response','Afspraak','Aanvraag','Type klant','Opmerking']];
+      rows.forEach(r=>{
+        aoa.push([r.aanwezig, r.organisatie, r.contact, r.functie, r.bm, r.actie_voor, r.actie_na, r.propositie, r.response, r.afspraak, r.aanvraag, r.klant_type, opmerkingenToText(r)]);
+      });
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = aoa[0].map((_, i) => ({ wch: i===0 ? 10 : 22 }));
+
+    let name = safeSheetName(ev);
+    let suffix = 1;
+    while(usedNames.has(name)){
+      name = safeSheetName(ev).slice(0, 28) + '_' + (++suffix);
+    }
+    usedNames.add(name);
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  });
+
+  // Samenvattend overzicht per Business Manager, zoals het 'Overzichten'-tabblad in de bron
+  const overzichtAoa = [['', 'Visit', 'Teams', 'Call', 'Mail']];
+  OPTIONS.bm.forEach(bm=>{
+    const row = [bm];
+    OPTIONS.actie.forEach(actie=>{
+      const count = DATA.filter(r=>r.bm===bm && (r.actie_voor===actie || r.actie_na===actie)).length;
+      row.push(count);
+    });
+    overzichtAoa.push(row);
+  });
+  const totaalRow = ['Totaal'];
+  OPTIONS.actie.forEach(actie=>{
+    totaalRow.push(DATA.filter(r=>(r.actie_voor===actie || r.actie_na===actie)).length);
+  });
+  overzichtAoa.push(totaalRow);
+  const overzichtWs = XLSX.utils.aoa_to_sheet(overzichtAoa);
+  XLSX.utils.book_append_sheet(wb, overzichtWs, 'Overzichten');
+
+  XLSX.writeFile(wb, 'Agium_Saleslijsten_2026_bijgewerkt.xlsx');
+});
+
+/* ---------------- Helpers ---------------- */
+function esc(v){
+  if(v === null || v === undefined || v === '') return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(v){
+  if(v === null || v === undefined) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ---------------- Master render ---------------- */
+function render(){
+  if(state.activeTab === 'dashboard'){
+    const filtered = getDashboardFiltered();
+    renderKPIs(filtered, 'kpiRow');
+    renderOverzicht(filtered);
+    renderCharts(filtered);
+  } else {
+    buildEventPicker();
+    const eventRows = DATA.filter(r=>r.event===state.selectedEvent);
+    renderKPIs(eventRows, 'eventKpiRow');
+    renderEventTable();
+  }
+}
+
+initFromSupabase();
+</script>
+</body>
+</html>

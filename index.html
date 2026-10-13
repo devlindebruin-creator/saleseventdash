@@ -233,6 +233,15 @@ table.data-table{width:100%; table-layout:fixed; border-collapse:collapse; font-
 .data-table col.col-functie{width:22%;}
 .data-table col.col-tags{width:26%;}
 .data-table col.col-chevron{width:36px;}
+.data-table col.col-event{display:none;}
+.data-table th.col-event-cell, .data-table td.col-event-cell{display:none;}
+.data-table.show-event-col col.col-event{display:table-column; width:17%;}
+.data-table.show-event-col th.col-event-cell, .data-table.show-event-col td.col-event-cell{display:table-cell;}
+.data-table.show-event-col col.col-org{width:15%;}
+.data-table.show-event-col col.col-contact{width:16%;}
+.data-table.show-event-col col.col-functie{width:16%;}
+.data-table.show-event-col col.col-tags{width:26%;}
+.btn-add-contact:disabled{opacity:.4; cursor:not-allowed;}
 .data-table thead th{
   text-align:left; padding:10px 12px; border-bottom:2px solid #e2e8e8; color:var(--text-secondary);
   font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap;
@@ -612,6 +621,13 @@ table.overzicht-table{width:100%; border-collapse:collapse; font-size:13.5px;}
 
     <div class="event-picker" id="eventPicker"></div>
 
+    <section class="overzicht-controls">
+      <div class="overzicht-controls-head">
+        <span class="overzicht-controls-label">Filter op Business Manager:</span>
+      </div>
+      <div id="eventsBmMultiSelect"></div>
+    </section>
+
     <section class="kpi-row" id="eventKpiRow"></section>
 
     <section class="table-section">
@@ -628,12 +644,13 @@ table.overzicht-table{width:100%; border-collapse:collapse; font-size:13.5px;}
       </div>
       <table class="data-table" id="dataTable">
         <colgroup>
-          <col class="col-aanwezig"><col class="col-org"><col class="col-contact">
+          <col class="col-aanwezig"><col class="col-event"><col class="col-org"><col class="col-contact">
           <col class="col-functie"><col class="col-tags"><col class="col-chevron">
         </colgroup>
         <thead>
           <tr>
             <th data-key="aanwezig">Aanwezig</th>
+            <th data-key="event" class="col-event-cell">Event</th>
             <th data-key="organisatie">Organisatie</th>
             <th data-key="contact">Contactpersoon</th>
             <th data-key="functie">Functietitel</th>
@@ -862,6 +879,8 @@ const OPTIONS = {
 
 let editedIds = new Set();
 
+const ALL_EVENTS = '__ALL__'; // speciale waarde: Events-tab toont alle events tegelijk
+
 let state = {
   activeTab: 'dashboard',
   // dashboard filters: elk een Set (leeg = "alle")
@@ -874,6 +893,7 @@ let state = {
   overzichtActieMoment: 'alle', // 'alle' | 'voor' | 'na'
   // events-tab state
   selectedEvent: null,
+  eventsBm: new Set(), // BM-filter op de Events-tab (leeg = alle BM's)
   search: '',
   sortKey: 'organisatie', sortDir: 1,
   page: 0, pageSize: 25,
@@ -938,6 +958,7 @@ async function initFromSupabase(){
 
   buildFilters();
   buildOverzichtEventMultiSelect();
+  buildEventsBmMultiSelect();
   render();
 
   subscribeRealtime();
@@ -968,7 +989,7 @@ function scheduleRealtimeRefetch(){
       opmerkingen: r.opmerkingen || [],
     }));
     OPTIONS.event = EVENT_ORDER;
-    if(!state.selectedEvent || !EVENT_ORDER.includes(state.selectedEvent)){
+    if(state.selectedEvent !== ALL_EVENTS && (!state.selectedEvent || !EVENT_ORDER.includes(state.selectedEvent))){
       state.selectedEvent = EVENT_ORDER.length ? EVENT_ORDER[0] : null;
     }
     // Als de geopende pop-up net verwijderd is door iemand anders, sluit 'm netjes
@@ -1308,8 +1329,19 @@ function renderCharts(filtered){
 function buildEventPicker(){
   const container = document.getElementById('eventPicker');
   container.innerHTML = '';
+
+  const allChip = document.createElement('div');
+  allChip.className = 'event-chip' + (state.selectedEvent===ALL_EVENTS ? ' active' : '');
+  allChip.innerHTML = `<span class="event-chip-label">Alle events</span><span class="count">${DATA.filter(bmMatches).length}</span>`;
+  allChip.addEventListener('click', ()=>{
+    state.selectedEvent = ALL_EVENTS;
+    state.page = 0;
+    render();
+  });
+  container.appendChild(allChip);
+
   OPTIONS.event.forEach(ev=>{
-    const count = DATA.filter(r=>r.event===ev).length;
+    const count = DATA.filter(r=>r.event===ev && bmMatches(r)).length;
     const chip = document.createElement('div');
     chip.className = 'event-chip' + (state.selectedEvent===ev ? ' active' : '');
     chip.innerHTML = `<span class="event-chip-label">${esc(ev)}</span><span class="count">${count}</span><button type="button" class="event-chip-delete" title="Event verwijderen">×</button>`;
@@ -1463,8 +1495,29 @@ function openDeleteEventConfirm(ev){
   });
 }
 
+function bmMatches(r){
+  return !state.eventsBm.size || state.eventsBm.has(r.bm);
+}
+
+function buildEventsBmMultiSelect(){
+  buildMultiSelect({
+    container: document.getElementById('eventsBmMultiSelect'),
+    options: OPTIONS.bm,
+    selectedSet: state.eventsBm,
+    label: 'Business Manager',
+    theme: 'light',
+    onChange: ()=>{ state.page = 0; render(); },
+  });
+}
+
+// Rijen binnen de gekozen event-selectie (één event of alle events) + BM-filter, zonder zoekterm
+function getEventScopeRows(){
+  let rows = state.selectedEvent === ALL_EVENTS ? DATA.slice() : DATA.filter(r=>r.event === state.selectedEvent);
+  return rows.filter(bmMatches);
+}
+
 function getEventRows(){
-  let rows = DATA.filter(r=>r.event === state.selectedEvent);
+  let rows = getEventScopeRows();
   if(state.search){
     const q = state.search.toLowerCase();
     rows = rows.filter(r =>
@@ -1531,7 +1584,11 @@ function maybeRemoveBlankNewContact(id){
 
 function renderEventTable(){
   const allRows = getEventRows();
+  const allMode = state.selectedEvent === ALL_EVENTS;
   const sorted = [...allRows].sort((a,b)=>{
+    if(state.sortKey === 'event'){
+      return (EVENT_ORDER.indexOf(a.event) - EVENT_ORDER.indexOf(b.event)) * state.sortDir;
+    }
     const av = (a[state.sortKey] ?? '').toString().toLowerCase();
     const bv = (b[state.sortKey] ?? '').toString().toLowerCase();
     if(av < bv) return -1*state.sortDir;
@@ -1544,14 +1601,22 @@ function renderEventTable(){
   const end = Math.min(start + state.pageSize, sorted.length);
   const pageRows = sorted.slice(start, end);
 
-  document.getElementById('eventTableTitle').textContent = state.selectedEvent
-    ? `Contacten — ${state.selectedEvent}`
-    : 'Geen events beschikbaar — voeg een nieuw event toe';
+  const bmText = state.eventsBm.size ? ` · BM: ${[...state.eventsBm].join(', ')}` : '';
+  document.getElementById('eventTableTitle').textContent = allMode
+    ? `Contacten — Alle events${bmText}`
+    : state.selectedEvent
+      ? `Contacten — ${state.selectedEvent}${bmText}`
+      : 'Geen events beschikbaar — voeg een nieuw event toe';
+  document.getElementById('dataTable').classList.toggle('show-event-col', allMode);
+  const addBtn = document.getElementById('addContactBtn');
+  addBtn.disabled = allMode;
+  addBtn.title = allMode ? 'Kies eerst een specifiek event om een contact toe te voegen' : '';
 
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = pageRows.map(r=>`
     <tr data-id="${r.id}" class="${editedIds.has(r.id) ? 'edited':''}">
       <td>${aanwezigPill(r.aanwezig)}</td>
+      <td class="col-event-cell">${esc(r.event)}</td>
       <td>${esc(r.organisatie) || '<span class="tag-empty">–</span>'}</td>
       <td><span class="contact-name">${esc(r.contact)}</span></td>
       <td>${esc(r.functie) || '<span class="tag-empty">–</span>'}</td>
@@ -1560,7 +1625,7 @@ function renderEventTable(){
     </tr>
   `).join('');
 
-  document.getElementById('eventTableMeta').textContent = `${allRows.length} contacten bij dit event`;
+  document.getElementById('eventTableMeta').textContent = `${allRows.length} contacten ${allMode ? 'in alle events' : 'bij dit event'}${state.eventsBm.size ? ' voor de gekozen BM' : ''}`;
   document.getElementById('pageInfo').textContent = allRows.length
     ? `Rij ${start+1}–${end} van ${allRows.length}`
     : 'Geen resultaten';
@@ -1596,8 +1661,8 @@ document.getElementById('addContactBtn').addEventListener('click', async ()=>{
     showToast('Supabase is niet gekoppeld — nieuw contact kan niet worden opgeslagen.', true);
     return;
   }
-  if(!state.selectedEvent){
-    showToast('Selecteer of maak eerst een event aan.', true);
+  if(!state.selectedEvent || state.selectedEvent === ALL_EVENTS){
+    showToast('Kies eerst een specifiek event om een contact toe te voegen.', true);
     return;
   }
   setSyncStatus('saving', 'Aanmaken…');
@@ -1700,7 +1765,7 @@ function closeModal(){
   currentModalId = null;
   renderEventTable(); // toon eventueel bijgewerkte tags/pill in de tabel
   if(state.activeTab === 'events'){
-    const eventRows = DATA.filter(r=>r.event===state.selectedEvent);
+    const eventRows = getEventScopeRows();
     renderKPIs(eventRows, 'eventKpiRow');
   }
 }
@@ -1970,7 +2035,7 @@ function render(){
     renderCharts(filtered);
   } else {
     buildEventPicker();
-    const eventRows = DATA.filter(r=>r.event===state.selectedEvent);
+    const eventRows = getEventScopeRows();
     renderKPIs(eventRows, 'eventKpiRow');
     renderEventTable();
   }
